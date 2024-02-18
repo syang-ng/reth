@@ -5,8 +5,7 @@
 use jsonrpsee::proc_macros::rpc;
 use reth_primitives::{Bytes, B256};
 use reth_rpc_types::{
-    CancelBundleRequest, CancelPrivateTransactionRequest, EthBundleHash, EthCallBundle,
-    EthCallBundleResponse, EthSendBundle, PrivateTransactionRequest,
+    CancelBundleRequest, CancelPrivateTransactionRequest, EthBundleHash, EthCallBundle, EthCallBundleResponse, EthSendBundle, EthSimulateBlock, PrivateTransactionRequest
 };
 
 /// A subset of the [EthBundleApi] API interface that only supports `eth_callBundle`.
@@ -20,6 +19,15 @@ pub trait EthCallBundleApi {
     async fn call_bundle(
         &self,
         request: EthCallBundle,
+    ) -> jsonrpsee::core::RpcResult<EthCallBundleResponse>;
+
+    /// `eth_simulateBlock` can be used to simulate a block at a specific block number.
+    /// This is useful for simulating the effects of a bundle at a specific block number.
+    /// The block number must be greater than the current block number.
+    #[method(name = "simulateBlock")]
+    async fn simulate_block(
+        &self,
+        request: EthSimulateBlock,
     ) -> jsonrpsee::core::RpcResult<EthCallBundleResponse>;
 }
 

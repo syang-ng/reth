@@ -633,6 +633,25 @@ pub struct EthCallBundle {
     pub timestamp: Option<u64>,
 }
 
+/// Block for `eth_simulateBlock`
+#[derive(Default, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EthSimulateBlock{
+    /// A list of hex-encoded signed transactions
+    pub txs: Vec<Bytes>,
+    /// hex encoded block number for which this bundle is valid on
+    pub block_number: U64,
+    /// Either a hex encoded number or a block tag for which state to base this simulation on
+    pub state_block_number: BlockNumberOrTag,
+    /// coinbase used for simulation
+    pub coinbase: Address,
+    /// base fee used for simulation
+    pub base_fee: U64,
+    /// the timestamp to use for this bundle simulation, in seconds since the unix epoch
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timestamp: Option<u64>,
+}
+
 /// Response for `eth_callBundle`
 #[derive(Default, Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
