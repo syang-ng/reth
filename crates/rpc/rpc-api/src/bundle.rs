@@ -2,7 +2,7 @@
 //!
 //! See also <https://docs.flashbots.net/flashbots-auction/searchers/advanced/rpc-endpoint>
 
-use jsonrpsee::proc_macros::rpc;
+use jsonrpsee::{async_client, proc_macros::rpc};
 use reth_primitives::{Bytes, B256};
 use reth_rpc_types::{
     CancelBundleRequest, CancelPrivateTransactionRequest, EthBundleHash, EthCallBundle, EthCallBundleResponse, EthSendBundle, EthSimulateBlock, PrivateTransactionRequest
@@ -50,6 +50,13 @@ pub trait EthBundleApi {
         &self,
         request: EthCallBundle,
     ) -> jsonrpsee::core::RpcResult<EthCallBundleResponse>;
+
+    /// `eth_simulateBlock` can be used to simulate a block at a specific block number.
+    #[method(name = "simulateBlock")]
+    async fn simulate_block(
+        &self,
+        request: EthSimulateBlock,
+    ) -> jsonrpsee::core::RpcResult<EthCallBundleResponse>;    
 
     /// `eth_cancelBundle` is used to prevent a submitted bundle from being included on-chain. See [bundle cancellations](https://docs.flashbots.net/flashbots-auction/searchers/advanced/bundle-cancellations) for more information.
     #[method(name = "cancelBundle")]
