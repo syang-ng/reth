@@ -177,7 +177,7 @@ where
             .await
     }
 
-    pub async fn simulate_block(&self, block: EthSimulateBlock) -> RpcResult<EthCallBundleResponse> {
+    pub async fn simulate_block(&self, block: EthSimulateBlock) -> EthResult<EthCallBundleResponse> {
         let EthSimulateBlock { txs, block_number, state_block_number, coinbase, base_fee, timestamp } = block;
         if txs.is_empty() {
             return Err(EthApiError::InvalidParams(
