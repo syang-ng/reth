@@ -678,6 +678,25 @@ pub struct EthCallBundleResponse {
     pub total_gas_used: u64,
 }
 
+/// Response for `eth_simulateBlock`
+#[serde(rename_all = "camelCase")]
+pub struct EthSimulateBlockResponse {
+    /// The balance of the coinbase before all transactions in the bundle
+    #[serde(with = "u256_numeric_string")]
+    pub coinbase_before: U256,
+    /// The balance of the coinbase after all transactions in the bundle
+    #[serde(with = "u256_numeric_string")]
+    pub coinbase_after: U256,
+    /// The total gas fees paid for all transactions in the bundle
+    #[serde(with = "u256_numeric_string")]
+    pub gas_fees: U256,
+    /// Results of individual transactions within the bundle
+    pub results: Vec<EthCallBundleTransactionResult>,
+    /// The block number used as a base for this simulation
+    pub state_block_number: u64,
+    /// The total gas used by all transactions in the bundle
+    pub total_gas_used: u64,
+}
 /// Result of a single transaction in a bundle for `eth_callBundle`
 #[derive(Default, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

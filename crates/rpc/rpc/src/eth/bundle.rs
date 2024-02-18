@@ -17,7 +17,7 @@ use reth_primitives::{
 };
 use reth_revm::database::StateProviderDatabase;
 use reth_rpc_api::EthCallBundleApiServer;
-use reth_rpc_types::{EthCallBundle, EthCallBundleResponse, EthCallBundleTransactionResult, EthSimulateBlock};
+use reth_rpc_types::{EthCallBundle, EthCallBundleResponse, EthCallBundleTransactionResult, EthSimulateBlock, EthSimulateBlockResponse};
 use revm::{
     db::CacheDB,
     primitives::{ResultAndState, TxEnv},
@@ -177,7 +177,7 @@ where
             .await
     }
 
-    pub async fn simulate_block(&self, block: EthSimulateBlock) -> EthResult<EthCallBundleResponse> {
+    pub async fn simulate_block(&self, block: EthSimulateBlock) -> EthResult<EthSimulateBlockResponse> {
         let EthSimulateBlock { txs, block_number, state_block_number, coinbase, base_fee, timestamp } = block;
         if txs.is_empty() {
             return Err(EthApiError::InvalidParams(
@@ -290,15 +290,9 @@ where
 
                 // populate the response
 
-                let coinbase_diff = coinbase_balance_after_tx.saturating_sub(initial_coinbase);
-                let eth_sent_to_coinbase = coinbase_diff.saturating_sub(total_gas_fess);
-                let bundle_gas_price =
-                    coinbase_diff.checked_div(U256::from(total_gas_used)).unwrap_or_default();
-                let res = EthCallBundleResponse {
-                    bundle_gas_price,
-                    bundle_hash: keccak256(&hash_bytes),
-                    coinbase_diff,
-                    eth_sent_to_coinbase,
+                let res = EthSimulateBlockResponse {
+                    coinbase_before: initial_coinbase,
+                    coinbase_after: coinbase_balance_after_tx,
                     gas_fees: total_gas_fess,
                     results,
                     state_block_number: state_block_number.to(),
@@ -320,7 +314,7 @@ where
         Ok(EthBundle::call_bundle(self, request).await?)
     }
 
-    async fn simulate_block(&self, request: EthSimulateBlock) -> RpcResult<EthCallBundleResponse> {
+    async fn simulate_block(&self, request: EthSimulateBlock) -> RpcResult<EthSimulateBlockResponse> {
         Ok(EthBundle::simulate_block(self, request).await?)
     }
 }
