@@ -167,10 +167,10 @@ impl DatabaseMetrics for DatabaseEnv {
 
                 Ok::<(), eyre::Report>(())
             })
-            .map_err(|error| error!(?error, "Failed to read db table stats"));
+            .map_err(|error| error!(%error, "Failed to read db table stats"));
 
         if let Ok(freelist) =
-            self.freelist().map_err(|error| error!(?error, "Failed to read db.freelist"))
+            self.freelist().map_err(|error| error!(%error, "Failed to read db.freelist"))
         {
             metrics.push(("db.freelist", freelist as f64, vec![]));
         }
@@ -356,7 +356,6 @@ mod tests {
     use crate::{
         abstraction::table::{Encode, Table},
         cursor::{DbCursorRO, DbCursorRW, DbDupCursorRO, DbDupCursorRW, ReverseWalker, Walker},
-        database::Database,
         models::{AccountBeforeTx, ShardedKey},
         tables::{AccountHistory, CanonicalHeaders, Headers, PlainAccountState, PlainStorageState},
         test_utils::*,
@@ -366,7 +365,7 @@ mod tests {
     use reth_interfaces::db::{DatabaseWriteError, DatabaseWriteOperation};
     use reth_libmdbx::Error;
     use reth_primitives::{Account, Address, Header, IntegerList, StorageEntry, B256, U256};
-    use std::{path::Path, str::FromStr, sync::Arc};
+    use std::str::FromStr;
     use tempfile::TempDir;
 
     /// Create database for testing
