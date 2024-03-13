@@ -647,6 +647,8 @@ pub struct EthSimulateBlock{
     pub coinbase: Address,
     /// base fee used for simulation
     pub base_fee: U64,
+    /// builder address list
+    pub builder_addresses: Vec<Address>,
     /// the timestamp to use for this bundle simulation, in seconds since the unix epoch
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timestamp: Option<u64>,
@@ -688,6 +690,10 @@ pub struct EthSimulateBlockResponse {
     /// The balance of the coinbase after the block
     #[serde(with = "u256_numeric_string")]
     pub coinbase_after: U256,
+    /// The balance of the builders before the block
+    pub builder_balances_before: Vec<U256>,
+    /// The balance of the builders after the block
+    pub builder_balances_after: Vec<U256>,
     /// The total gas fees paid for all transactions in the bundle
     #[serde(with = "u256_numeric_string")]
     pub gas_fees: U256,

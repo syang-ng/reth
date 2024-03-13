@@ -23,6 +23,7 @@ use revm::{
     primitives::{ResultAndState, TxEnv},
 };
 use revm_primitives::EnvWithHandlerCfg;
+use tower::builder;
 use std::sync::Arc;
 
 /// `Eth` bundle implementation.
@@ -88,6 +89,7 @@ where
                     .unwrap_or_default();
                 let mut coinbase_balance_before_tx = initial_coinbase;
                 let mut coinbase_balance_after_tx = initial_coinbase;
+
                 let mut total_gas_used = 0u64;
                 let mut total_gas_fess = U256::ZERO;
                 let mut hash_bytes = Vec::with_capacity(32 * transactions.len());
@@ -178,7 +180,7 @@ where
     }
 
     pub async fn simulate_block(&self, block: EthSimulateBlock) -> EthResult<EthSimulateBlockResponse> {
-        let EthSimulateBlock { txs, block_number, state_block_number, coinbase, base_fee, timestamp } = block;
+        let EthSimulateBlock { txs, block_number, state_block_number, coinbase, base_fee, builder_addresses, timestamp } = block;
         if txs.is_empty() {
             return Err(EthApiError::InvalidParams(
                 EthBundleError::EmptyBundleTransactions.to_string(),
@@ -219,6 +221,19 @@ where
                 let initial_coinbase = DatabaseRef::basic_ref(&db, coinbase)?
                     .map(|acc| acc.balance)
                     .unwrap_or_default();
+
+                let builder_balances_before_tx = builder_addresses.clone().into_iter().map(|addr| {
+                        DatabaseRef::basic_ref(&db, addr)
+                            .map(|acc| {
+                                match acc {
+                                    Some(account_info) => account_info.balance,
+                                    None => U256::from(0), 
+                                }
+                            }).unwrap_or_default() 
+                    }).collect::<Vec<_>>();
+
+                // let mut builder_balances_after_tx = builder_balances_before_tx.clone();
+
                 let mut coinbase_balance_before_tx = initial_coinbase;
                 let mut coinbase_balance_after_tx = initial_coinbase;
                 let mut total_gas_used = 0u64;
@@ -279,20 +294,24 @@ where
                     };
                     results.push(tx_res);
 
-                    // need to apply the state changes of this call before executing the
-                    // next call
-                    if transactions.peek().is_some() {
-                        // need to apply the state changes of this call before executing
-                        // the next call
-                        evm.context.evm.db.commit(state)
-                    }
+                    evm.context.evm.db.commit(state)
                 }
 
-                // populate the response
+                // update the builder balances
+                let builder_balances_after_tx = builder_addresses.clone().into_iter().map(|addr| {
+                    DatabaseRef::basic_ref(&evm.context.evm.db, addr)
+                        .map(|acc| acc.map_or(U256::from(0), |account_info| account_info.balance))
+                        .unwrap_or_default()
+                })
+                .collect::<Vec<_>>();
 
+
+                // populate the response
                 let res = EthSimulateBlockResponse {
                     coinbase_before: initial_coinbase,
                     coinbase_after: coinbase_balance_after_tx,
+                    builder_balances_before: builder_balances_before_tx,
+                    builder_balances_after: builder_balances_after_tx,
                     gas_fees: total_gas_fess,
                     results,
                     state_block_number: state_block_number.to(),
