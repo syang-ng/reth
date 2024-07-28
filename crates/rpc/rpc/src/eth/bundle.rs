@@ -11,6 +11,7 @@ use reth_primitives::{
 };
 use reth_revm::database::StateProviderDatabase;
 use reth_rpc_types::mev::{EthCallBundle, EthCallBundleResponse, EthCallBundleTransactionResult};
+use reth_rpc_types::sim::{EthSimulateBlock, EthSimulateBlockResponse};
 use reth_tasks::pool::BlockingTaskGuard;
 use revm::{
     db::CacheDB,
@@ -246,6 +247,200 @@ where
             })
             .await
     }
+
+    pub async fn simulate_block(&self, block: EthSimulateBlock) -> EthResult<EthSimulateBlockResponse> {
+        let EthSimulateBlock { txs, block_number, state_block_number, coinbase, base_fee, builder_addresses, timestamp } = block;
+        if txs.is_empty() {
+            return Err(EthApiError::InvalidParams(
+                EthBundleError::EmptyBundleTransactions.to_string(),
+            ))
+        }
+        if block_number == 0 {
+            return Err(EthApiError::InvalidParams(
+                EthBundleError::BundleMissingBlockNumber.to_string(),
+            ))
+        }
+
+        let transactions = txs
+            .into_iter()
+            .map(recover_raw_transaction)
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .map(|tx| tx.into_components())
+            .collect::<Vec<_>>();
+
+        // Validate that the bundle does not contain more than MAX_BLOB_NUMBER_PER_BLOCK blob
+        // transactions.
+        if transactions
+            .iter()
+            .filter_map(|(tx, _)| {
+                if let PooledTransactionsElement::BlobTransaction(tx) = tx {
+                    Some(tx.transaction.blob_gas())
+                } else {
+                    None
+                }
+            })
+            .sum::<u64>() >
+            MAX_BLOB_GAS_PER_BLOCK
+        {
+            return Err(EthApiError::InvalidParams(
+                EthBundleError::Eip4844BlobGasExceeded.to_string(),
+            ))
+        }
+
+        let block_id: reth_rpc_types::BlockId = state_block_number.into();
+        let (cfg, mut block_env, at) = self.inner.eth_api.evm_env_at(block_id).await?;
+
+        // need to adjust the timestamp for the next block
+        if let Some(timestamp) = timestamp {
+            block_env.timestamp = U256::from(timestamp);
+        } else {
+            block_env.timestamp += U256::from(12);
+        }
+
+        if let Some(base_fee) = base_fee {
+            block_env.basefee = U256::from(base_fee);
+        } else if cfg.handler_cfg.spec_id.is_enabled_in(SpecId::LONDON) {
+            let parent_block = block_env.number.saturating_to::<u64>();
+            // here we need to fetch the _next_ block's basefee based on the parent block <https://github.com/flashbots/mev-geth/blob/fddf97beec5877483f879a77b7dea2e58a58d653/internal/ethapi/api.go#L2130>
+            let parent = LoadPendingBlock::provider(&self.inner.eth_api)
+                .header_by_number(parent_block)?
+                .ok_or_else(|| EthApiError::UnknownBlockNumber)?;
+            if let Some(base_fee) = parent.next_block_base_fee(
+                LoadPendingBlock::provider(&self.inner.eth_api)
+                    .chain_spec()
+                    .base_fee_params_at_block(parent_block),
+            ) {
+                block_env.basefee = U256::from(base_fee);
+            }
+        }
+
+        let state_block_number = block_env.number;
+        // use the block number of the request
+        block_env.number = U256::from(block_number);
+        block_env.coinbase = coinbase;
+
+        let eth_api = self.inner.eth_api.clone();
+
+        self.inner
+            .eth_api
+            .spawn_with_state_at_block(at, move |state| {
+                let coinbase = block_env.coinbase;
+                let basefee = Some(block_env.basefee.to::<u64>());
+                let env = EnvWithHandlerCfg::new_with_cfg_env(cfg, block_env, TxEnv::default());
+                let db = CacheDB::new(StateProviderDatabase::new(state));
+
+                let initial_coinbase = DatabaseRef::basic_ref(&db, coinbase)?
+                    .map(|acc| acc.balance)
+                    .unwrap_or_default();
+
+                let builder_balances_before_tx = builder_addresses.clone().into_iter().map(|addr| {
+                        DatabaseRef::basic_ref(&db, addr)
+                            .map(|acc| {
+                                match acc {
+                                    Some(account_info) => account_info.balance,
+                                    None => U256::from(0), 
+                                }
+                            }).unwrap_or_default() 
+                    }).collect::<Vec<_>>();
+
+                // let mut builder_balances_after_tx = builder_balances_before_tx.clone();
+
+                let mut coinbase_balance_before_tx = initial_coinbase;
+                let mut coinbase_balance_after_tx = initial_coinbase;
+                let mut total_gas_used = 0u64;
+                let mut total_gas_fess = U256::ZERO;
+                let mut hash_bytes = Vec::with_capacity(32 * transactions.len());
+
+                let mut evm = Call::evm_config(&eth_api).evm_with_env(db, env);
+
+                let mut results = Vec::with_capacity(transactions.len());
+                let mut transactions = transactions.into_iter().peekable();
+
+                while let Some((tx, signer)) = transactions.next() {
+                    // Verify that the given blob data, commitments, and proofs are all valid for
+                    // this transaction.
+                    if let PooledTransactionsElement::BlobTransaction(ref tx) = tx {
+                        tx.validate(EnvKzgSettings::Default.get())
+                            .map_err(|e| EthApiError::InvalidParams(e.to_string()))?;
+                    }
+
+                    let tx = tx.into_transaction();
+
+                    hash_bytes.extend_from_slice(tx.hash().as_slice());
+                    let gas_price = tx
+                        .effective_tip_per_gas(basefee)
+                        .ok_or_else(|| RpcInvalidTransactionError::FeeCapTooLow)?;
+                    Call::evm_config(&eth_api).fill_tx_env(evm.tx_mut(), &tx, signer);
+                    let ResultAndState { result, state } = evm.transact()?;
+
+                    let gas_used = result.gas_used();
+                    total_gas_used += gas_used;
+
+                    let gas_fees = U256::from(gas_used) * U256::from(gas_price);
+                    total_gas_fess += gas_fees;
+
+                    // coinbase is always present in the result state
+                    coinbase_balance_after_tx =
+                        state.get(&coinbase).map(|acc| acc.info.balance).unwrap_or_default();
+                    let coinbase_diff =
+                        coinbase_balance_after_tx.saturating_sub(coinbase_balance_before_tx);
+                    let eth_sent_to_coinbase = coinbase_diff.saturating_sub(gas_fees);
+
+                    // update the coinbase balance
+                    coinbase_balance_before_tx = coinbase_balance_after_tx;
+
+                    // set the return data for the response
+                    let (value, revert) = if result.is_success() {
+                        let value = result.into_output().unwrap_or_default();
+                        (Some(value), None)
+                    } else {
+                        let revert = result.into_output().unwrap_or_default();
+                        (None, Some(revert))
+                    };
+
+                    let tx_res = EthCallBundleTransactionResult {
+                        coinbase_diff,
+                        eth_sent_to_coinbase,
+                        from_address: signer,
+                        gas_fees,
+                        gas_price: U256::from(gas_price),
+                        gas_used,
+                        to_address: tx.to(),
+                        tx_hash: tx.hash(),
+                        value,
+                        revert,
+                    };
+                    results.push(tx_res);
+
+                    evm.context.evm.db.commit(state)
+                }
+
+                // update the builder balances
+                let builder_balances_after_tx = builder_addresses.clone().into_iter().map(|addr| {
+                    DatabaseRef::basic_ref(&evm.context.evm.db, addr)
+                        .map(|acc| acc.map_or(U256::from(0), |account_info| account_info.balance))
+                        .unwrap_or_default()
+                })
+                .collect::<Vec<_>>();
+
+
+                // populate the response
+                let res = EthSimulateBlockResponse {
+                    coinbase_before: initial_coinbase,
+                    coinbase_after: coinbase_balance_after_tx,
+                    builder_balances_before: builder_balances_before_tx,
+                    builder_balances_after: builder_balances_after_tx,
+                    gas_fees: total_gas_fess,
+                    results,
+                    state_block_number: state_block_number.to(),
+                    total_gas_used,
+                };
+
+                Ok(res)
+            })
+            .await
+    }
 }
 
 #[async_trait::async_trait]
@@ -255,6 +450,11 @@ where
 {
     async fn call_bundle(&self, request: EthCallBundle) -> RpcResult<EthCallBundleResponse> {
         Ok(Self::call_bundle(self, request).await?)
+    }
+
+
+    async fn simulate_block(&self, request: EthSimulateBlock) -> RpcResult<EthSimulateBlockResponse> {
+        Ok(Self::simulate_block(self, request).await?)
     }
 }
 

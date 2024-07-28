@@ -8,6 +8,7 @@ use reth_rpc_types::mev::{
     CancelBundleRequest, CancelPrivateTransactionRequest, EthBundleHash, EthCallBundle,
     EthCallBundleResponse, EthSendBundle, PrivateTransactionRequest,
 };
+use reth_rpc_types::sim::{EthSimulateBlock, EthSimulateBlockResponse};
 
 /// A subset of the [EthBundleApi] API interface that only supports `eth_callBundle`.
 #[cfg_attr(not(feature = "client"), rpc(server, namespace = "eth"))]
@@ -40,6 +41,13 @@ pub trait EthBundleApi {
         &self,
         request: EthCallBundle,
     ) -> jsonrpsee::core::RpcResult<EthCallBundleResponse>;
+
+    /// `eth_simulateBlock` can be used to simulate a block at a specific block number.
+    #[method(name = "simulateBlock")]
+    async fn simulate_block(
+        &self,
+        request: EthSimulateBlock,
+    ) -> jsonrpsee::core::RpcResult<EthSimulateBlockResponse>;   
 
     /// `eth_cancelBundle` is used to prevent a submitted bundle from being included on-chain. See [bundle cancellations](https://docs.flashbots.net/flashbots-auction/searchers/advanced/bundle-cancellations) for more information.
     #[method(name = "cancelBundle")]

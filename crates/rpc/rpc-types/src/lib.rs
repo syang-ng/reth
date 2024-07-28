@@ -13,6 +13,7 @@
 mod eth;
 mod peer;
 mod rpc;
+mod sim;
 
 // re-export for convenience
 pub use alloy_rpc_types::serde_helpers;
