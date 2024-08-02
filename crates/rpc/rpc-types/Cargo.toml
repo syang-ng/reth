@@ -25,6 +25,7 @@ alloy-rpc-types-trace.workspace = true
 alloy-rpc-types-txpool.workspace = true
 alloy-serde.workspace = true
 alloy-rpc-types-engine = { workspace = true, features = ["jsonrpsee-types"] }
+serde_json = {workspace = true, features = ["alloc"]}
 
 # misc
 serde = { workspace = true, features = ["derive"] }

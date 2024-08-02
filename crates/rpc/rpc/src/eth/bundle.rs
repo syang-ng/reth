@@ -11,7 +11,7 @@ use reth_primitives::{
 };
 use reth_revm::database::StateProviderDatabase;
 use reth_rpc_types::mev::{EthCallBundle, EthCallBundleResponse, EthCallBundleTransactionResult};
-use reth_rpc_types::sim::{EthSimulateBlock, EthSimulateBlockResponse};
+use reth_rpc_types::{EthSimulateBlock, EthSimulateBlockResponse};
 use reth_tasks::pool::BlockingTaskGuard;
 use revm::{
     db::CacheDB,
@@ -451,7 +451,6 @@ where
     async fn call_bundle(&self, request: EthCallBundle) -> RpcResult<EthCallBundleResponse> {
         Ok(Self::call_bundle(self, request).await?)
     }
-
 
     async fn simulate_block(&self, request: EthSimulateBlock) -> RpcResult<EthSimulateBlockResponse> {
         Ok(Self::simulate_block(self, request).await?)

@@ -56,3 +56,4 @@ pub use eth::{
 
 pub use peer::*;
 pub use rpc::*;
+pub use sim::*;
