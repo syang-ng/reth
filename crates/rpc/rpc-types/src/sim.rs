@@ -1,3 +1,6 @@
+use alloy_eips::BlockNumberOrTag;
+use alloy_primitives::{Address, Bytes, U256};
+use alloy_rpc_types_mev::{EthCallBundleTransactionResult, u256_numeric_string};
 use serde::{
     Deserialize, Serialize,
 };
@@ -9,13 +12,13 @@ pub struct EthSimulateBlock{
     /// A list of hex-encoded signed transactions
     pub txs: Vec<Bytes>,
     /// hex encoded block number for which this bundle is valid on
-    pub block_number: U64,
+    pub block_number: u64,
     /// Either a hex encoded number or a block tag for which state to base this simulation on
     pub state_block_number: BlockNumberOrTag,
     /// coinbase used for simulation
     pub coinbase: Address,
     /// base fee used for simulation
-    pub base_fee: U64,
+    pub base_fee: Option<u128>,
     /// builder address list
     pub builder_addresses: Vec<Address>,
     /// the timestamp to use for this bundle simulation, in seconds since the unix epoch
@@ -43,7 +46,9 @@ pub struct EthSimulateBlockResponse {
     /// Results of individual transactions within the bundle
     pub results: Vec<EthCallBundleTransactionResult>,
     /// The block number used as a base for this simulation
+    #[serde(with = "alloy_serde::quantity")]
     pub state_block_number: u64,
     /// The total gas used by all transactions in the bundle
+    #[serde(with = "alloy_serde::quantity")]
     pub total_gas_used: u64,
 }
