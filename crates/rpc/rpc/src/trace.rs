@@ -564,7 +564,7 @@ where
                                 continue;
                             } 
 
-                            if call_from == target_address && !call_action.input.is_empty() {
+                            if call_from == target_address && !call_action.input.is_empty() && !call_action.input.starts_with(&[0xa9, 0x05, 0x9c, 0xbb]) && !call_action.input.starts_with(&[0x09,0x5e,0xa7,0xb3]) {
                                 previous_call_to.insert(call_to);
                             }
 
