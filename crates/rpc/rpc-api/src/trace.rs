@@ -69,6 +69,15 @@ pub trait TraceApi {
         block_id: BlockId,
     ) -> RpcResult<Option<Vec<LocalizedTransactionTrace>>>;
 
+
+    /// Returns traces from an MEV-phishing phishing attack.
+    #[method(name = "mevPhishing")]
+    async fn trace_mev_phishing(
+        &self,
+        start_block_id: BlockId,
+        end_block_id: BlockId,
+    ) -> RpcResult<Option<Vec<LocalizedTransactionTrace>>>;
+
     /// Returns traces matching given filter.
     ///
     /// This is similar to `eth_getLogs` but for traces.

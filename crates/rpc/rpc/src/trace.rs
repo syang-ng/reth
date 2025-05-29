@@ -1,7 +1,7 @@
 use alloy_consensus::BlockHeader as _;
 use alloy_eips::BlockId;
 use alloy_evm::block::calc::{base_block_reward_pre_merge, block_reward, ommer_reward};
-use alloy_primitives::{map::HashSet, Bytes, B256, U256};
+use alloy_primitives::{map::HashSet, Bytes, B256, TxHash, U256};
 use alloy_rpc_types_eth::{
     state::{EvmOverrides, StateOverride},
     transaction::TransactionRequest,
@@ -33,7 +33,7 @@ use revm_inspectors::{
     opcode::OpcodeGasInspector,
     tracing::{parity::populate_state_diff, TracingInspector, TracingInspectorConfig},
 };
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 use tokio::sync::{AcquireError, OwnedSemaphorePermit};
 
 /// `trace` API implementation.
@@ -495,6 +495,103 @@ where
         Ok(maybe_traces)
     }
 
+    /// Returns traces from an MEV-phishing phishing attack.
+    pub async fn trace_mev_phishing(
+        &self,
+        start_block_id: BlockId,
+        end_block_id: BlockId,
+    ) -> Result<Option<Vec<LocalizedTransactionTrace>>, Eth::Error> {
+        // loop through all blocks in the range and trace them
+        let mut phishing_traces: Vec<LocalizedTransactionTrace> = Vec::new();
+        let start = start_block_id.as_u64().unwrap_or(0);
+        let end = end_block_id.as_u64().unwrap_or(u64::MAX);
+        if start > end {
+            return Err(EthApiError::InvalidParams(
+                "invalid parameters: startBlock cannot be greater than endBlock".to_string(),
+            )
+            .into())
+        }
+
+        for num in start..=end {
+            let block_id = BlockId::Number(num.into());
+            let traces = self.eth_api().trace_block_with(
+                block_id,
+                None,
+                TracingInspectorConfig::default_parity(),
+                |tx_info, inspector, _, _, _| {
+                    let traces =
+                        inspector.into_parity_builder().into_localized_transaction_traces(tx_info);
+                    Ok(traces)
+                },
+            );
+
+            let maybe_traces = traces.await?;
+            let maybe_traces =
+                maybe_traces.map(|traces| traces.into_iter().flatten().collect::<Vec<_>>());
+            
+            // group traces by transaction hash
+            let mut traces_by_hashes: HashMap<TxHash, Vec<LocalizedTransactionTrace>> = HashMap::new();
+            for trace in maybe_traces.iter().flatten() {
+                let tx_hash = trace.transaction_hash.expect("transaction hash is set");
+                traces_by_hashes.entry(tx_hash).or_default().push(trace.clone());   
+            }
+
+            for (_, traces) in traces_by_hashes {
+                if traces.len() == 0 {
+                    continue;
+                }
+
+                // check if the first action is a call to a contract
+                let first_action = traces[0].trace.action.clone();
+                if let Action::Call(first_call_action) = &first_action {
+                    if first_call_action.input.is_empty() {
+                        continue;
+                    }
+
+                    let from_address = first_call_action.from;
+                    let target_address = first_call_action.to;
+
+                    let mut previous_call_to = HashSet::new();
+
+                    for call in traces {
+                        if let Action::Call(call_action) = &call.trace.action {
+                            // check if the call is to the same address
+                            let call_to = call_action.to;
+                            let call_from = call_action.from;
+
+                            if call_from == from_address {
+                                continue;
+                            } 
+
+                            if call_from == target_address && !call_action.input.is_empty() {
+                                previous_call_to.insert(call_to);
+                            }
+
+                            // if call_to == target and call_from not in previous_call_to and call['action']['input'] != '0x' and not call['action']['input'].startswith("0x150b7a02"): # only interested in calls to the target contract from a different contract calls.append(call)
+                            if call_to == target_address
+                                && !previous_call_to.contains(&call_from)
+                                && !call_action.input.is_empty()
+                                && !call_action.input.starts_with(&[0x15, 0x0b, 0x7a, 0x02])
+                            {
+                                phishing_traces.push(call.clone());
+                            }
+
+                        }
+                    }
+
+                } else {
+                    continue;
+                }
+            }
+        }
+
+        Ok(if phishing_traces.is_empty() {
+            None
+        } else {
+            Some(phishing_traces)
+        })
+    }
+
     /// Replays all transactions in a block
     pub async fn replay_block_transactions(
         &self,
@@ -637,6 +734,18 @@ where
     ) -> RpcResult<Option<Vec<LocalizedTransactionTrace>>> {
         let _permit = self.acquire_trace_permit().await;
         Ok(Self::trace_block(self, block_id).await.map_err(Into::into)?)
+    }
+
+    /// Handler for `trace_mev_phishing`
+    async fn trace_mev_phishing(
+        &self,
+        start_block_id: BlockId,
+        end_block_id: BlockId,
+    ) -> RpcResult<Option<Vec<LocalizedTransactionTrace>>> {
+        let _permit = self.acquire_trace_permit().await;
+        Ok(Self::trace_mev_phishing(self, start_block_id, end_block_id)
+            .await
+            .map_err(Into::into)?)
     }
 
     /// Handler for `trace_filter`
