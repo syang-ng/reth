@@ -532,8 +532,9 @@ where
             // group traces by transaction hash
             let mut traces_by_hashes: HashMap<TxHash, Vec<LocalizedTransactionTrace>> = HashMap::new();
             for trace in maybe_traces.iter().flatten() {
-                let tx_hash = trace.transaction_hash.expect("transaction hash is set");
-                traces_by_hashes.entry(tx_hash).or_default().push(trace.clone());   
+                if let Some(tx_hash) = trace.transaction_hash {
+                    traces_by_hashes.entry(tx_hash).or_default().push(trace.clone());
+                } 
             }
 
             for (_, traces) in traces_by_hashes {
@@ -567,7 +568,6 @@ where
                                 previous_call_to.insert(call_to);
                             }
 
-                            // if call_to == target and call_from not in previous_call_to and call['action']['input'] != '0x' and not call['action']['input'].startswith("0x150b7a02"): # only interested in calls to the target contract from a different contract calls.append(call)
                             if call_to == target_address
                                 && !previous_call_to.contains(&call_from)
                                 && !call_action.input.is_empty()
