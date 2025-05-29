@@ -544,7 +544,7 @@ where
                 // check if the first action is a call to a contract
                 let first_action = traces[0].trace.action.clone();
                 if let Action::Call(first_call_action) = &first_action {
-                    if first_call_action.input.is_empty() {
+                    if first_call_action.input.is_empty() || first_call_action.call_type != CallType::Call {
                         continue;
                     }
 
@@ -559,7 +559,7 @@ where
                             let call_to = call_action.to;
                             let call_from = call_action.from;
 
-                            if call_from == from_address {
+                            if call_from == from_address || call_action.call_type != CallType::Call {
                                 continue;
                             } 
 
